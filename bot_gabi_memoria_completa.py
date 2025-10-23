@@ -742,10 +742,14 @@ if __name__ == '__main__':
     print("=" * 70)
     print("✨ Versión 100% en Memoria (Sin Redis, Sin PostgreSQL)")
     print("=" * 70)
-    print(f"Puerto: 5000")
-    print(f"Webhook: http://localhost:5000/webhook/whatsapp")
-    print(f"Health: http://localhost:5000/health")
-    print(f"Stats: http://localhost:5000/stats")
+    
+    # Detectar puerto de Render o usar 10000 por defecto
+    port = int(os.getenv('PORT', 10000))
+    
+    print(f"Puerto: {port}")
+    print(f"Webhook: http://localhost:{port}/webhook/whatsapp")
+    print(f"Health: http://localhost:{port}/health")
+    print(f"Stats: http://localhost:{port}/stats")
     print("=" * 70)
     print(f"📝 Credenciales desde JSON original de n8n:")
     print(f"   ✅ OpenAI (id: PGVzTzuh2HAoTTyS)")
@@ -767,4 +771,5 @@ if __name__ == '__main__':
         print("✅ API key de OpenAI configurada")
         print("=" * 70)
     
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    print(f"🚀 Iniciando servidor en puerto {port}...")
+    app.run(host='0.0.0.0', port=port, debug=False)
