@@ -4,11 +4,12 @@
 # Framework web
 Flask==3.0.0
 
-# Cliente OpenAI
-openai==1.54.0
+# Cliente OpenAI - Versión más reciente compatible
+openai>=1.57.0
 
 # Cliente HTTP
 requests==2.31.0
 
 # Utilidades
 python-dotenv==1.0.0
+```
