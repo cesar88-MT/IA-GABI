@@ -1,0 +1,14 @@
+# Dependencias del Bot de WhatsApp - Gabi
+# Versión 100% en Memoria (Sin Redis, Sin PostgreSQL)
+
+# Framework web
+Flask==3.0.0
+
+# Cliente OpenAI
+openai==1.12.0
+
+# Cliente HTTP
+requests==2.31.0
+
+# Utilidades
+python-dotenv==1.0.0
