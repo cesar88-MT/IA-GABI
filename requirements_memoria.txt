@@ -1,15 +1,31 @@
-# Dependencias del Bot de WhatsApp - Gabi
-# Versión 100% en Memoria (Sin Redis, Sin PostgreSQL)
-
-# Framework web
 Flask==3.0.0
-
-# Cliente OpenAI - Versión más reciente compatible
 openai>=1.57.0
-
-# Cliente HTTP
 requests==2.31.0
-
-# Utilidades
 python-dotenv==1.0.0
 ```
+
+**Solo esas 4 líneas. Nada más.**
+
+---
+
+## 📝 **PASOS:**
+
+1. https://github.com/cesar88-MT/IA-GABI/blob/main/requirements_memoria.txt
+2. Click ✏️
+3. **Borra TODO**
+4. Pega las 4 líneas de arriba
+5. Commit
+
+---
+
+## 🎯 **ALTERNATIVA: Descargar y subir**
+
+Si sigue fallando, crea un archivo nuevo en tu PC:
+
+1. Abre Notepad
+2. Pega esto:
+```
+Flask==3.0.0
+openai>=1.57.0
+requests==2.31.0
+python-dotenv==1.0.0
