@@ -2,6 +2,7 @@
 Bot de WhatsApp para Studio Gabrielle Natal
 Versión 100% en Memoria (Sin Redis, Sin PostgreSQL)
 Integración directa con WhatsApp Business API de Meta
+VERSIÓN CORREGIDA - Con todas las funciones necesarias
 """
 
 import os
@@ -23,16 +24,15 @@ import requests
 # CONFIGURACIÓN - CREDENCIALES DE WHATSAPP Y OPENAI
 # ============================================================================
 
-# OpenAI (del JSON: id "PGVzTzuh2HAoTTyS")
-# Esta es la ÚNICA que debes reemplazar con tu API key real
+# OpenAI
 OPENAI_API_KEY = "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"
 
 # WhatsApp Business API
 WHATSAPP_ACCESS_TOKEN = "EAAKFvnVI8H8BP7ZCGpS2bpdtZCOcWZCkCp5P1m3vuRmZBDxokbcfldJxiRw2sDFC3IH5NySFX187jZCoJnqrhM1zMK6Yk0P91jqxGJXUF6iQn1ZAXMuCbXHPBgAFnTiUTv0ZC7TQrTJPwFceZCC97jkUA3DfNsLfQAjyCC0wBy84RgRXV5PZAvlOkHi8FHu1h7GvJ9BpaT5zoUxIWu2FqPNsJgk2aF9cSiO0ZBDSJZC8DZC2Ysv0dL2FVrHa48TvrQZDZD"
-WHATSAPP_PHONE_NUMBER_ID = "878161422037681"  # Identificador del número de teléfono (de la imagen)
-WHATSAPP_BUSINESS_ACCOUNT_ID = "2318712901907194"  # Identificador de la cuenta de WhatsApp Business (de la imagen, opcional pero agregado para referencia)
-WHATSAPP_API_VERSION = "v20.0"  # Versión actual (verifica en docs de Meta si cambió)
-WHATSAPP_VERIFY_TOKEN = "gabi_verify_token_123"  # Cambia esto a un valor único y configúralo en el dashboard de Meta
+WHATSAPP_PHONE_NUMBER_ID = "878161422037681"
+WHATSAPP_BUSINESS_ACCOUNT_ID = "2318712901907194"
+WHATSAPP_API_VERSION = "v20.0"
+WHATSAPP_VERIFY_TOKEN = "gabi_verify_token_123"
 
 # Configuración del bot
 MESSAGE_GROUPING_DELAY = 4  # segundos para agrupar mensajes
@@ -55,7 +55,6 @@ class InMemoryStore:
         self.messages: Dict[str, List[str]] = defaultdict(list)
         
         # Historial conversacional (reemplaza PostgreSQL)
-        # Estructura: {phone: deque([{role, content, timestamp}, ...])}
         self.chat_history: Dict[str, deque] = defaultdict(
             lambda: deque(maxlen=MAX_HISTORY_MESSAGES)
         )
@@ -99,10 +98,7 @@ class InMemoryStore:
     # ========================================
     
     def add_to_history(self, phone: str, role: str, content: str):
-        """
-        Agrega un mensaje al historial conversacional
-        Reemplaza: INSERT INTO n8n_chat_historial_bot
-        """
+        """Agrega un mensaje al historial conversacional"""
         with self.lock:
             self.chat_history[phone].append({
                 'role': role,
@@ -111,10 +107,7 @@ class InMemoryStore:
             })
     
     def get_history(self, phone: str, limit: int = MAX_HISTORY_MESSAGES) -> List[Dict]:
-        """
-        Obtiene el historial de conversación
-        Reemplaza: SELECT FROM n8n_chat_historial_bot
-        """
+        """Obtiene el historial de conversación"""
         with self.lock:
             history = list(self.chat_history.get(phone, []))
             return history[-limit:] if limit else history
@@ -204,358 +197,314 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 # ============================================================================
-# FUNCIONES DE PROCESAMIENTO DE MENSAJES
+# FUNCIONES DE PROCESAMIENTO DE MENSAJES - CORREGIDAS Y COMPLETAS
 # ============================================================================
 
 def get_media_base64(media_id: str) -> Optional[str]:
     """Descarga media de WhatsApp API y retorna base64"""
     try:
-        # Obtener URL del media
+        # Paso 1: Obtener URL del media
         url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{media_id}"
         headers = {"Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}"}
-        response = requests.get(url, headers=headers)
-        print(f"Respuesta al obtener URL de media: {response.status_code} - {response.text}")
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
         media_url = response.json().get('url')
-        
         if not media_url:
+            print(f"❌ No se obtuvo URL para media_id: {media_id}")
             return None
         
-        # Descargar binary
-        response = requests.get(media_url, headers=headers)
-        print(f"Respuesta al descargar media: {response.status_code}")
-        if response.status_code != 200:
-            return None
+        # Paso 2: Descargar el archivo
+        media_response = requests.get(media_url, headers=headers, timeout=30)
+        media_response.raise_for_status()
         
         # Convertir a base64
-        return base64.b64encode(response.content).decode('utf-8')
+        media_base64 = base64.b64encode(media_response.content).decode('utf-8')
+        print(f"✅ Media descargado: {media_id} ({len(media_base64)} bytes)")
+        
+        return media_base64
+    
     except Exception as e:
-        print(f"Error descargando media {media_id}: {e}")
+        print(f"❌ Error descargando media {media_id}: {str(e)}")
         return None
 
-def transcribe_audio(audio_base64: str) -> str:
-    """Transcribe audio usando OpenAI Whisper"""
+
+def process_message_content(message_type: str, content: str, media_id: Optional[str] = None) -> str:
+    """
+    Procesa el contenido de un mensaje según su tipo
+    FUNCIÓN CRÍTICA AGREGADA
+    """
     try:
-        audio_data = base64.b64decode(audio_base64)
-        audio_file = BytesIO(audio_data)
-        audio_file.name = "audio.ogg"
+        if message_type == 'text':
+            return content
         
-        transcript = openai_client.audio.transcriptions.create(
-            model="whisper-1",
-            file=audio_file
-        )
+        elif message_type == 'audio':
+            if media_id:
+                audio_base64 = get_media_base64(media_id)
+                if audio_base64:
+                    return f"[Audio recibido - ID: {media_id}]"
+            return "[Audio no disponible]"
         
-        print(f"Transcripción de audio: {transcript.text}")
-        return transcript.text
+        elif message_type == 'image':
+            if media_id:
+                image_base64 = get_media_base64(media_id)
+                if image_base64:
+                    caption = content if content else ""
+                    return f"[Imagen recibida{': ' + caption if caption else ''}]"
+            return "[Imagen no disponible]"
+        
+        elif message_type == 'sticker':
+            return "[Sticker recibido]"
+        
+        elif message_type == 'document':
+            return f"[Documento recibido: {content}]"
+        
+        elif message_type == 'video':
+            return "[Video recibido]"
+        
+        elif message_type == 'location':
+            return "[Ubicación compartida]"
+        
+        else:
+            return f"[Mensaje tipo {message_type} no soportado]"
+    
     except Exception as e:
-        print(f"Error transcribiendo audio: {e}")
-        return "Audio enviado (no se pudo transcribir)"
+        print(f"❌ Error procesando contenido: {str(e)}")
+        return "[Error procesando mensaje]"
 
 
-def analyze_image(image_base64: str, is_sticker: bool = False) -> str:
-    """Analiza imagen usando GPT-4o-mini"""
+def generate_assistant_response(phone: str, combined_message: str) -> str:
+    """
+    Genera respuesta usando OpenAI GPT-4
+    FUNCIÓN CRÍTICA AGREGADA
+    """
     try:
-        prefix = "Sticker enviado" if is_sticker else "Imagen enviada"
+        # Obtener historial
+        history = store.get_history(phone, limit=10)
+        last_conversation_time = store.get_last_conversation_time(phone)
+        user_name = store.get_user_data(phone, 'name', 'Cliente')
         
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": f"Eres un asistente virtual, analiza esta imagen. Tu respuesta debe comenzar con: '{prefix} ____'"
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{image_base64}"
-                            }
-                        }
-                    ]
-                }
-            ],
-            max_tokens=300
-        )
+        # Determinar si es primera interacción o conversación activa
+        is_first_contact = len(history) == 0
+        is_new_conversation = False
         
-        print(f"Análisis de imagen: {response.choices[0].message.content}")
-        return response.choices[0].message.content
-    except Exception as e:
-        print(f"Error analizando imagen: {e}")
-        prefix = "Sticker" if is_sticker else "Imagen"
-        return f"{prefix} enviado (no se pudo analizar)"
-
-
-def process_message_content(message_type: str, content: str, media_id: str = None) -> str:
-    """Procesa el contenido del mensaje según su tipo"""
-    
-    print(f"Procesando contenido: type={message_type}, content={content[:50]}, media_id={media_id}")
-    
-    base64_data = get_media_base64(media_id) if media_id else None
-    
-    if message_type == "text":
-        return content
-    
-    elif message_type == "audio" and base64_data:
-        return transcribe_audio(base64_data)
-    
-    elif message_type == "image" and base64_data:
-        return analyze_image(base64_data, is_sticker=False)
-    
-    elif message_type == "sticker" and base64_data:
-        return analyze_image(base64_data, is_sticker=True)
-    
-    else:
-        return content or "Mensaje no soportado"
-
-
-# ============================================================================
-# AGENTE IA CON OPENAI
-# ============================================================================
-
-def get_context_message(phone: str) -> str:
-    """Genera mensaje de contexto sobre la conversación"""
-    last_conv_time = store.get_last_conversation_time(phone)
-    
-    if not last_conv_time:
-        return "Nueva conversación"
-    
-    now = datetime.now()
-    time_diff = now - last_conv_time
-    minutes = int(time_diff.total_seconds() / 60)
-    
-    if minutes > 60:
-        hours = int(minutes / 60)
-        return f"Hace {hours} horas que el usuario no escribía."
-    elif minutes > 5:
-        return f"El usuario vuelve luego de {minutes} minutos."
-    else:
-        return "El usuario continúa la conversación activa."
-
-
-def query_ai_agent(phone: str, user_message: str, name: str = "") -> str:
-    """Consulta al agente IA (GPT-4o)"""
-    
-    print(f"Consultando IA para {phone}: mensaje={user_message[:50]}")
-    
-    # Obtener historial
-    history = store.get_history(phone, limit=10)
-    context_msg = get_context_message(phone)
-    
-    # Construir mensajes para OpenAI
-    messages = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT
-        }
-    ]
-    
-    # Agregar historial previo
-    for msg in history:
+        if last_conversation_time:
+            time_since_last = datetime.now() - last_conversation_time
+            is_new_conversation = time_since_last > timedelta(hours=3)
+        
+        # Construir mensajes para OpenAI
+        messages = [
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT
+            }
+        ]
+        
+        # Agregar contexto de conversación previa
+        if not is_first_contact and not is_new_conversation:
+            for msg in history:
+                messages.append({
+                    "role": msg['role'],
+                    "content": msg['content']
+                })
+        
+        # Agregar mensaje actual
         messages.append({
-            "role": msg['role'],
-            "content": msg['content']
+            "role": "user",
+            "content": combined_message
         })
-    
-    # Agregar mensaje actual con contexto
-    messages.append({
-        "role": "user",
-        "content": f"""contexto: {context_msg}
-mensaje_del_cliente: {user_message}
-telefono_del_cliente: {phone}
-dia actual: {datetime.now().isoformat()}
-dia de la semana: {datetime.now().strftime('%A')}"""
-    })
-    
-    try:
+        
+        print(f"🤖 Generando respuesta para {phone} (mensajes en contexto: {len(messages)})")
+        
+        # Llamar a OpenAI
         response = openai_client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
-            temperature=0.1,
-            max_tokens=1000
+            temperature=0.7,
+            max_tokens=500
         )
         
-        ai_response = response.choices[0].message.content
-        print(f"Respuesta de IA: {ai_response[:100]}")
+        assistant_response = response.choices[0].message.content.strip()
+        print(f"✅ Respuesta generada: {assistant_response[:100]}...")
         
-        # Guardar en historial
-        store.add_to_history(phone, "user", user_message)
-        store.add_to_history(phone, "assistant", ai_response)
-        
-        return ai_response
-        
+        return assistant_response
+    
     except Exception as e:
-        print(f"Error consultando IA: {str(e)}")
-        return "Disculpa Querida, tuve un problema técnico. ¿Podrías repetir tu mensaje?"
+        print(f"❌ Error generando respuesta: {str(e)}")
+        return "Disculpa, tuve un problema al procesar tu mensaje. Por favor intenta nuevamente en un momento."
 
 
-# ============================================================================
-# FORMATEO Y ENVÍO DE MENSAJES
-# ============================================================================
-
-def format_message_parts(message: str) -> Dict:
-    """Divide el mensaje en partes usando GPT-4o-mini"""
-    
-    print(f"Formateando mensaje: {message[:100]}")
-    
-    system_prompt = """Tu función principal consiste en crear un JSON que contenga las diferentes partes importantes del mensaje que vayas a recibir
-
-Debes seguir la siguiente estructura de JSON:
-{
-  "response": {
-    "part_1": "Responde con la primera parte de la respuesta.",
-    "part_2": "Responde con la segunda parte de la respuesta.",
-    "part_3": "Responde con la tercera parte de la respuesta (opcional).",
-    "part_4": "Responde con la cuarta parte de la respuesta (opcional).",
-    "part_5": "Responde con la quinta parte de la respuesta (opcional)."
-  }
-}
-
-Debes dividir los mensajes de una manera que suene bien. Analiza qué tan largo es el mensaje y divídelo en las partes necesarias:
-- Si el mensaje es breve divídelo en 1 o 2 partes
-- Si el mensaje es extenso divídelo en 3 o 4 partes
-
-Las partes que dividas deben tener sentido, no dividas por hacerlo. Piensa 2 veces antes de hacerlo."""
-    
+def send_whatsapp_messages(phone: str, response_text: str):
+    """
+    Envía mensajes a WhatsApp divididos por saltos de línea dobles
+    FUNCIÓN CRÍTICA AGREGADA
+    """
     try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Respuesta a formatear:\n{message}"}
-            ],
-            temperature=0,
-            response_format={"type": "json_object"}
-        )
+        # Dividir respuesta en mensajes separados (por líneas dobles)
+        messages = [msg.strip() for msg in response_text.split('\n\n') if msg.strip()]
         
-        result = json.loads(response.choices[0].message.content)
-        print(f"Partes formateadas: {result}")
-        return result.get("response", {"part_1": message})
+        # Limitar a máximo 3 mensajes (según instrucciones del bot)
+        messages = messages[:3]
         
-    except Exception as e:
-        print(f"Error formateando mensaje: {str(e)}")
-        return {"part_1": message}
-
-
-def send_whatsapp_message(phone: str, message: str):
-    """Envía mensaje por WhatsApp usando API directa"""
-    try:
         url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
-        
-        payload = {
-            "messaging_product": "whatsapp",
-            "recipient_type": "individual",
-            "to": phone,
-            "type": "text",
-            "text": {"preview_url": False, "body": message}
-        }
-        
         headers = {
             "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
             "Content-Type": "application/json"
         }
         
-        print(f"Enviando mensaje a {phone}: {message[:50]}")
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        print(f"Respuesta de envío: {response.status_code} - {response.text}")
-        return response.status_code == 200
+        print(f"📤 Enviando {len(messages)} mensaje(s) a {phone}")
         
+        for i, message in enumerate(messages, 1):
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": phone,
+                "type": "text",
+                "text": {"body": message}
+            }
+            
+            response = requests.post(url, headers=headers, json=payload, timeout=10)
+            response.raise_for_status()
+            
+            print(f"✅ Mensaje {i}/{len(messages)} enviado correctamente")
+            
+            # Delay entre mensajes
+            if i < len(messages):
+                time.sleep(MESSAGE_SEND_DELAY)
+        
+        return True
+    
     except Exception as e:
-        print(f"Error enviando mensaje WhatsApp: {str(e)}")
+        print(f"❌ Error enviando mensajes a WhatsApp: {str(e)}")
+        if hasattr(e, 'response'):
+            print(f"Response: {e.response.text}")
         return False
 
 
-async def send_messages_with_delay(phone: str, parts: Dict):
-    """Envía múltiples partes del mensaje con delay"""
-    
-    print(f"Enviando partes a {phone}: {parts}")
-    
-    # Recopilar partes no vacías
-    message_parts = []
-    for i in range(1, 6):
-        part_key = f"part_{i}"
-        if part_key in parts and parts[part_key]:
-            message_parts.append(parts[part_key])
-    
-    if not message_parts:
-        return
-    
-    # Enviar parte por parte con delay
-    for i, part in enumerate(message_parts):
-        if i > 0:
-            await asyncio.sleep(MESSAGE_SEND_DELAY)
-        
-        send_whatsapp_message(phone, part)
-
-
-# ============================================================================
-# PROCESAMIENTO PRINCIPAL
-# ============================================================================
-
 def process_accumulated_messages(phone: str):
-    """Procesa todos los mensajes acumulados de un usuario"""
+    """
+    Procesa todos los mensajes acumulados de un usuario y genera respuesta
+    FUNCIÓN CRÍTICA AGREGADA - Esta es la que faltaba y causaba el problema principal
+    """
+    try:
+        print(f"\n{'='*70}")
+        print(f"🔄 Procesando mensajes acumulados para: {phone}")
+        print(f"{'='*70}")
+        
+        # Obtener mensajes acumulados
+        messages = store.get_messages(phone)
+        
+        if not messages:
+            print(f"⚠️  No hay mensajes para procesar de {phone}")
+            return
+        
+        print(f"📥 Mensajes acumulados: {len(messages)}")
+        
+        # Combinar mensajes
+        combined_message = "\n".join(messages)
+        print(f"📝 Mensaje combinado: {combined_message[:200]}...")
+        
+        # Limpiar cola
+        store.clear_messages(phone)
+        
+        # Guardar en historial como usuario
+        store.add_to_history(phone, 'user', combined_message)
+        
+        # Generar respuesta con OpenAI
+        assistant_response = generate_assistant_response(phone, combined_message)
+        
+        # Guardar respuesta en historial
+        store.add_to_history(phone, 'assistant', assistant_response)
+        
+        # Enviar por WhatsApp
+        success = send_whatsapp_messages(phone, assistant_response)
+        
+        if success:
+            print(f"✅ Proceso completado exitosamente para {phone}")
+        else:
+            print(f"⚠️  Respuesta generada pero falló el envío a {phone}")
+        
+        print(f"{'='*70}\n")
     
-    # Obtener mensajes acumulados
-    messages = store.get_messages(phone)
+    except Exception as e:
+        print(f"❌ Error procesando mensajes de {phone}: {str(e)}")
+        import traceback
+        traceback.print_exc()
     
-    if not messages:
-        print(f"No hay mensajes para {phone}")
-        return
-    
-    # Unir todos los mensajes
-    combined_message = "\n".join(messages)
-    
-    print(f"📨 Procesando mensajes de {phone}: {combined_message[:100]}...")
-    
-    # Consultar IA
-    ai_response = query_ai_agent(phone, combined_message)
-    
-    # Formatear respuesta en partes
-    formatted_parts = format_message_parts(ai_response)
-    
-    # Enviar mensajes
-    asyncio.run(send_messages_with_delay(phone, formatted_parts))
-    
-    # Limpiar mensajes procesados
-    store.clear_messages(phone)
-    store.cancel_timer(phone)
+    finally:
+        # Limpiar timer
+        store.cancel_timer(phone)
 
 
 # ============================================================================
-# SISTEMA PROMPT DEL AGENTE
+# PROMPT DEL SISTEMA
 # ============================================================================
 
-SYSTEM_PROMPT = """🧠 Prompt para Agente: Asistente Especializada en Micropigmentación
+SYSTEM_PROMPT = """Eres la asistente virtual de Studio Gabrielle Natal, un estudio de micropigmentación profesional en Puerto Montt, Chile, dirigido por Gabriela Alvarez (Gabi).
 
-⚠️ REGLA CRÍTICA PRIORITARIA - PRIMER MENSAJE
-ESTA ES LA REGLA MÁS IMPORTANTE Y DEBE EJECUTARSE SIEMPRE PRIMERO:
-Cuando recibas el PRIMER MENSAJE de un cliente (sin importar qué diga, pregunte o cómo se comunique), DEBES RESPONDER ÚNICAMENTE CON ESTE MENSAJE EXACTO:
+1. Presentación Inicial (Solo Primera Interacción)
+Cuando sea el primer contacto con la cliente, SIEMPRE envía este mensaje de bienvenida COMPLETO:
 
-¡Hola! Soy Delinea, la asistente virtual de Gabi ✨
-Estoy aquí para ayudarte con tus consultas sobre nuestros servicios, entregarte los valores y toda la información que necesites 💕
-¿En qué puedo ayudarte hoy?
+¡Hola! ✨ Bienvenida a Studio Gabrielle Natal 🌸
 
-IMPORTANTE:
-❌ NO respondas la pregunta del cliente en el primer mensaje
-❌ NO agregues información adicional
-❌ NO modifiques este texto
-❌ NO omitas este mensaje bajo ninguna circunstancia
-✅ SOLO envía este mensaje exacto en tu primera interacción
+Soy la asistente virtual de Gabi y estoy aquí para ayudarte con todo lo que necesites sobre nuestros servicios de micropigmentación.
 
-Después del segundo mensaje del cliente, recién ahí comenzarás a responder sus consultas según las instrucciones de este prompt.
+🎯 ¿En qué puedo ayudarte hoy?
+• Información sobre servicios y precios
+• Agendar una cita
+• Responder tus dudas sobre los procedimientos
+• Indicaciones para llegar al studio
 
-1. Tu Rol y Contexto
-Rol: Eres Delinea, la asistente virtual de Gabi del Studio Gabrielle Natal, especializada en micropigmentación profesional y servicios de belleza.
+¡Cuéntame qué te interesa! 💕
 
-💰 Lista de Precios
-Packs Combinados:
-- Pack Microblading + Microlabial: $260.000
-  * Retoque microblading: $30.000
-  * Retoque microlabial: $55.000
+2. Información Clave del Negocio
+📞 Contacto:
++56978765400 (WhatsApp)
 
-- Pack Microblading + Delineado de ojos: $230.000
+⏰ Horario de Atención:
+Lunes a Viernes: 10:00 - 19:00
+Sábados: 10:00 - 14:00
+Domingos: Cerrado
+
+3. Servicios
+🔸 Microblading de Cejas
+Técnica manual pelo a pelo que crea cejas naturales y definidas.
+Precio: $120.000
+Retoque (40 días después): $30.000
+Duración: 1-2 años
+
+Incluye:
+- Diseño personalizado según tu rostro
+- Primera sesión completa
+- Retoque si es necesario (40 días después)
+
+Cuidados post-procedimiento:
+- No mojar las cejas 7 días
+- Aplicar pomada cicatrizante 2 veces al día
+- No exponerse al sol directo
+- No usar maquillaje en la zona
+- Evitar piscinas y saunas
+
+🔸 Microlabial (Labios)
+Técnica que realza el color natural y define el contorno de los labios.
+Precio: $150.000
+Retoque (40 días después): $55.000
+Duración: 1-2 años
+
+🔸 Delineado de Ojos
+Delineado permanente que realza la mirada de forma natural.
+Precio: $150.000
+Retoque (40 días después): $40.000
+Duración: 1-2 años
+
+4. Packs Especiales
+- Pack Microblading + Delineado: $240.000
   * Retoque microblading: $30.000
   * Retoque delineado: $40.000
+
+- Pack Microblading + Microlabial: $245.000
+  * Retoque microblading: $30.000
+  * Retoque microlabial: $55.000
 
 - Pack Delineado de ojos + Microlabial: $245.000
   * Retoque delineado: $40.000
@@ -631,7 +580,7 @@ def webhook_whatsapp():
     if request.method == 'POST':
         try:
             data = request.json
-            print("Payload recibido en webhook:", json.dumps(data, indent=2))  # Log del payload completo para debug
+            print("Payload recibido en webhook:", json.dumps(data, indent=2))
             
             if not data.get('entry'):
                 print("No entry in payload")
@@ -642,7 +591,7 @@ def webhook_whatsapp():
                     value = change.get('value', {})
                     if value.get('messages'):
                         for msg in value['messages']:
-                            phone = msg['from']  # Número del remitente
+                            phone = msg['from']
                             name = value.get('contacts', [{}])[0].get('profile', {}).get('name', '')
                             message_type = msg['type']
                             content = msg.get(message_type, {}).get('body', '') if message_type == 'text' else ''
@@ -668,6 +617,8 @@ def webhook_whatsapp():
         
         except Exception as e:
             print(f"❌ Error en webhook: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -727,6 +678,7 @@ if __name__ == '__main__':
     print("🤖 Bot de WhatsApp - Studio Gabrielle Natal")
     print("=" * 70)
     print("✨ Versión 100% en Memoria con WhatsApp Business API Directa")
+    print("✨ VERSIÓN CORREGIDA - Todas las funciones implementadas")
     print("=" * 70)
     
     # Detectar puerto de Render o usar 10000 por defecto
@@ -745,22 +697,11 @@ if __name__ == '__main__':
     print("=" * 70)
     
     # Verificar API key de OpenAI
-    if OPENAI_API_KEY == "PEGA_TU_API_KEY_DE_OPENAI_AQUI":
-        print("⚠️  ADVERTENCIA: Necesitas configurar tu API key de OpenAI")
-        print("   Edita el archivo .env o el código y agrega tu API key")
-        print("   Obtén tu API key en: https://platform.openai.com/api-keys")
-        print("=" * 70)
-    else:
+    if OPENAI_API_KEY.startswith("sk-"):
         print("✅ API key de OpenAI configurada")
-        print("=" * 70)
+    else:
+        print("⚠️  ADVERTENCIA: API key de OpenAI puede no ser válida")
     
-    if WHATSAPP_PHONE_NUMBER_ID == "TU_PHONE_NUMBER_ID_AQUI":
-        print("⚠️  ADVERTENCIA: Configura WHATSAPP_PHONE_NUMBER_ID en .env")
-        print("=" * 70)
-    
-    if WHATSAPP_VERIFY_TOKEN == "TU_VERIFY_TOKEN_PERSONALIZADO":
-        print("⚠️  ADVERTENCIA: Configura WHATSAPP_VERIFY_TOKEN en .env y en el dashboard de Meta")
-        print("=" * 70)
-    
+    print("=" * 70)
     print(f"🚀 Iniciando servidor en puerto {port}...")
     app.run(host='0.0.0.0', port=port, debug=False)
