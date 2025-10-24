@@ -347,6 +347,7 @@ def webhook_whatsapp():
             log(f"\n{'='*70}")
             log("📥 WEBHOOK RECIBIDO")
             log(f"{'='*70}")
+            log(f"PAYLOAD COMPLETO: {json.dumps(data, indent=2)}")
             
             # FORMATO CHATWOOT
             event = data.get('event')
