@@ -32,7 +32,7 @@ WHATSAPP_ACCESS_TOKEN = "EAAKFvnVI8H8BP7ZCGpS2bpdtZCOcWZCkCp5P1m3vuRmZBDxokbcfld
 WHATSAPP_PHONE_NUMBER_ID = "878161422037681"  # Identificador del número de teléfono (de la imagen)
 WHATSAPP_BUSINESS_ACCOUNT_ID = "2318712901907194"  # Identificador de la cuenta de WhatsApp Business (de la imagen, opcional pero agregado para referencia)
 WHATSAPP_API_VERSION = "v20.0"  # Versión actual (verifica en docs de Meta si cambió)
-WHATSAPP_VERIFY_TOKEN = "TU_VERIFY_TOKEN_PERSONALIZADO"  # Define uno seguro (ej: cadena aleatoria de 32 chars), configúralo en .env y en el dashboard de Meta > WhatsApp > Configuration > Webhook
+WHATSAPP_VERIFY_TOKEN = "gabi_verify_token_123"  # Cambia esto a un valor único y configúralo en el dashboard de Meta
 
 # Configuración del bot
 MESSAGE_GROUPING_DELAY = 4  # segundos para agrupar mensajes
@@ -214,6 +214,7 @@ def get_media_base64(media_id: str) -> Optional[str]:
         url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{media_id}"
         headers = {"Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}"}
         response = requests.get(url, headers=headers)
+        print(f"Respuesta al obtener URL de media: {response.status_code} - {response.text}")
         media_url = response.json().get('url')
         
         if not media_url:
@@ -221,6 +222,7 @@ def get_media_base64(media_id: str) -> Optional[str]:
         
         # Descargar binary
         response = requests.get(media_url, headers=headers)
+        print(f"Respuesta al descargar media: {response.status_code}")
         if response.status_code != 200:
             return None
         
@@ -242,6 +244,7 @@ def transcribe_audio(audio_base64: str) -> str:
             file=audio_file
         )
         
+        print(f"Transcripción de audio: {transcript.text}")
         return transcript.text
     except Exception as e:
         print(f"Error transcribiendo audio: {e}")
@@ -275,6 +278,7 @@ def analyze_image(image_base64: str, is_sticker: bool = False) -> str:
             max_tokens=300
         )
         
+        print(f"Análisis de imagen: {response.choices[0].message.content}")
         return response.choices[0].message.content
     except Exception as e:
         print(f"Error analizando imagen: {e}")
@@ -284,6 +288,8 @@ def analyze_image(image_base64: str, is_sticker: bool = False) -> str:
 
 def process_message_content(message_type: str, content: str, media_id: str = None) -> str:
     """Procesa el contenido del mensaje según su tipo"""
+    
+    print(f"Procesando contenido: type={message_type}, content={content[:50]}, media_id={media_id}")
     
     base64_data = get_media_base64(media_id) if media_id else None
     
@@ -328,7 +334,9 @@ def get_context_message(phone: str) -> str:
 
 
 def query_ai_agent(phone: str, user_message: str, name: str = "") -> str:
-    """Consulta al agente IA (GPT-4)"""
+    """Consulta al agente IA (GPT-4o)"""
+    
+    print(f"Consultando IA para {phone}: mensaje={user_message[:50]}")
     
     # Obtener historial
     history = store.get_history(phone, limit=10)
@@ -361,13 +369,14 @@ dia de la semana: {datetime.now().strftime('%A')}"""
     
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=messages,
             temperature=0.1,
             max_tokens=1000
         )
         
         ai_response = response.choices[0].message.content
+        print(f"Respuesta de IA: {ai_response[:100]}")
         
         # Guardar en historial
         store.add_to_history(phone, "user", user_message)
@@ -376,7 +385,7 @@ dia de la semana: {datetime.now().strftime('%A')}"""
         return ai_response
         
     except Exception as e:
-        print(f"Error consultando IA: {e}")
+        print(f"Error consultando IA: {str(e)}")
         return "Disculpa Querida, tuve un problema técnico. ¿Podrías repetir tu mensaje?"
 
 
@@ -386,6 +395,8 @@ dia de la semana: {datetime.now().strftime('%A')}"""
 
 def format_message_parts(message: str) -> Dict:
     """Divide el mensaje en partes usando GPT-4o-mini"""
+    
+    print(f"Formateando mensaje: {message[:100]}")
     
     system_prompt = """Tu función principal consiste en crear un JSON que contenga las diferentes partes importantes del mensaje que vayas a recibir
 
@@ -418,10 +429,11 @@ Las partes que dividas deben tener sentido, no dividas por hacerlo. Piensa 2 vec
         )
         
         result = json.loads(response.choices[0].message.content)
+        print(f"Partes formateadas: {result}")
         return result.get("response", {"part_1": message})
         
     except Exception as e:
-        print(f"Error formateando mensaje: {e}")
+        print(f"Error formateando mensaje: {str(e)}")
         return {"part_1": message}
 
 
@@ -443,18 +455,20 @@ def send_whatsapp_message(phone: str, message: str):
             "Content-Type": "application/json"
         }
         
+        print(f"Enviando mensaje a {phone}: {message[:50]}")
         response = requests.post(url, json=payload, headers=headers, timeout=10)
-        if response.status_code != 200:
-            print(f"Error enviando mensaje: {response.text}")
+        print(f"Respuesta de envío: {response.status_code} - {response.text}")
         return response.status_code == 200
         
     except Exception as e:
-        print(f"Error enviando mensaje WhatsApp: {e}")
+        print(f"Error enviando mensaje WhatsApp: {str(e)}")
         return False
 
 
 async def send_messages_with_delay(phone: str, parts: Dict):
     """Envía múltiples partes del mensaje con delay"""
+    
+    print(f"Enviando partes a {phone}: {parts}")
     
     # Recopilar partes no vacías
     message_parts = []
@@ -485,6 +499,7 @@ def process_accumulated_messages(phone: str):
     messages = store.get_messages(phone)
     
     if not messages:
+        print(f"No hay mensajes para {phone}")
         return
     
     # Unir todos los mensajes
