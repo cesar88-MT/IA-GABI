@@ -1,7 +1,7 @@
 """
 Bot de WhatsApp para Studio Gabrielle Natal
 Versión 100% en Memoria (Sin Redis, Sin PostgreSQL)
-Usa credenciales del JSON original de n8n
+Integración directa con WhatsApp Business API de Meta
 """
 
 import os
@@ -20,39 +20,19 @@ from openai import OpenAI
 import requests
 
 # ============================================================================
-# CONFIGURACIÓN DESDE JSON ORIGINAL - TODAS LAS CREDENCIALES INCLUIDAS
+# CONFIGURACIÓN - CREDENCIALES DE WHATSAPP Y OPENAI
 # ============================================================================
 
 # OpenAI (del JSON: id "PGVzTzuh2HAoTTyS")
 # Esta es la ÚNICA que debes reemplazar con tu API key real
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "PEGA_TU_API_KEY_DE_OPENAI_AQUI")
+OPENAI_API_KEY = "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"
 
-# Chatwoot (del JSON original - Account 138777)
-CHATWOOT_ACCOUNT_ID = "138777"
-CHATWOOT_CONVERSATION_ID = "1"
-CHATWOOT_API_TOKEN = "5XGwCbzb34RtAW4w1Dhp8wi1"
-CHATWOOT_BASE_URL = "https://app.chatwoot.com/api/v1"
-
-# Redis (del JSON: id "bjEyCAk9JJ3QXrqG")
-# No se usa en esta versión, se usa memoria RAM
-REDIS_CREDENTIAL_ID = "bjEyCAk9JJ3QXrqG"
-
-# PostgreSQL (del JSON: id "GfOA4VDJdGF0xebE")
-# No se usa en esta versión, se usa memoria RAM
-POSTGRES_CREDENTIAL_ID = "GfOA4VDJdGF0xebE"
-
-# Evolution API (del JSON: id "rniQecqvTbok0fj7")
-# Las credenciales se obtienen automáticamente desde el webhook
-# No necesitas configurar nada aquí
-EVOLUTION_CREDENTIAL_ID = "rniQecqvTbok0fj7"
-EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", None)
-EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY", None)
-
-# Supabase Vector Store (del JSON: id "nknXq3pe8zLgswTX")
-# Opcional - solo si quieres usar base de conocimientos vectorizada
-SUPABASE_CREDENTIAL_ID = "nknXq3pe8zLgswTX"
-SUPABASE_URL = os.getenv("SUPABASE_URL", None)
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", None)
+# WhatsApp Business API
+WHATSAPP_ACCESS_TOKEN = "EAAKFvnVI8H8BP7ZCGpS2bpdtZCOcWZCkCp5P1m3vuRmZBDxokbcfldJxiRw2sDFC3IH5NySFX187jZCoJnqrhM1zMK6Yk0P91jqxGJXUF6iQn1ZAXMuCbXHPBgAFnTiUTv0ZC7TQrTJPwFceZCC97jkUA3DfNsLfQAjyCC0wBy84RgRXV5PZAvlOkHi8FHu1h7GvJ9BpaT5zoUxIWu2FqPNsJgk2aF9cSiO0ZBDSJZC8DZC2Ysv0dL2FVrHa48TvrQZDZD"
+WHATSAPP_PHONE_NUMBER_ID = "878161422037681"  # Identificador del número de teléfono (de la imagen)
+WHATSAPP_BUSINESS_ACCOUNT_ID = "2318712901907194"  # Identificador de la cuenta de WhatsApp Business (de la imagen, opcional pero agregado para referencia)
+WHATSAPP_API_VERSION = "v20.0"  # Versión actual (verifica en docs de Meta si cambió)
+WHATSAPP_VERIFY_TOKEN = "TU_VERIFY_TOKEN_PERSONALIZADO"  # Define uno seguro (ej: cadena aleatoria de 32 chars), configúralo en .env y en el dashboard de Meta > WhatsApp > Configuration > Webhook
 
 # Configuración del bot
 MESSAGE_GROUPING_DELAY = 4  # segundos para agrupar mensajes
@@ -227,6 +207,29 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 # FUNCIONES DE PROCESAMIENTO DE MENSAJES
 # ============================================================================
 
+def get_media_base64(media_id: str) -> Optional[str]:
+    """Descarga media de WhatsApp API y retorna base64"""
+    try:
+        # Obtener URL del media
+        url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{media_id}"
+        headers = {"Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}"}
+        response = requests.get(url, headers=headers)
+        media_url = response.json().get('url')
+        
+        if not media_url:
+            return None
+        
+        # Descargar binary
+        response = requests.get(media_url, headers=headers)
+        if response.status_code != 200:
+            return None
+        
+        # Convertir a base64
+        return base64.b64encode(response.content).decode('utf-8')
+    except Exception as e:
+        print(f"Error descargando media {media_id}: {e}")
+        return None
+
 def transcribe_audio(audio_base64: str) -> str:
     """Transcribe audio usando OpenAI Whisper"""
     try:
@@ -279,8 +282,10 @@ def analyze_image(image_base64: str, is_sticker: bool = False) -> str:
         return f"{prefix} enviado (no se pudo analizar)"
 
 
-def process_message_content(message_type: str, content: str, base64_data: str = None) -> str:
+def process_message_content(message_type: str, content: str, media_id: str = None) -> str:
     """Procesa el contenido del mensaje según su tipo"""
+    
+    base64_data = get_media_base64(media_id) if media_id else None
     
     if message_type == "text":
         return content
@@ -420,66 +425,35 @@ Las partes que dividas deben tener sentido, no dividas por hacerlo. Piensa 2 vec
         return {"part_1": message}
 
 
-def send_whatsapp_message(instance: str, remote_jid: str, message: str, delay_ms: int = 0):
-    """
-    Envía mensaje por WhatsApp
-    Si Evolution API está configurado, lo usa.
-    Si no, solo envía por Chatwoot (Chatwoot se encarga de enviar a WhatsApp)
-    """
-    
-    # Si Evolution API está configurado, usarlo
-    if EVOLUTION_API_URL and EVOLUTION_API_KEY:
-        try:
-            url = f"{EVOLUTION_API_URL}/message/sendText/{instance}"
-            
-            payload = {
-                "number": remote_jid,
-                "text": message,
-                "delay": delay_ms
-            }
-            
-            headers = {
-                "Content-Type": "application/json",
-                "apikey": EVOLUTION_API_KEY
-            }
-            
-            response = requests.post(url, json=payload, headers=headers, timeout=10)
-            return response.status_code == 200
-            
-        except Exception as e:
-            print(f"Error enviando mensaje WhatsApp via Evolution: {e}")
-            return False
-    else:
-        # Si no hay Evolution configurado, Chatwoot maneja el envío
-        print(f"📤 Mensaje preparado para envío via Chatwoot: {message[:50]}...")
-        return True
-
-
-def send_chatwoot_message(content: str):
-    """Envía mensaje a Chatwoot"""
+def send_whatsapp_message(phone: str, message: str):
+    """Envía mensaje por WhatsApp usando API directa"""
     try:
-        url = f"{CHATWOOT_BASE_URL}/accounts/{CHATWOOT_ACCOUNT_ID}/conversations/{CHATWOOT_CONVERSATION_ID}/messages"
+        url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
         
         payload = {
-            "content": content,
-            "message_type": "outgoing",
-            "private": False
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": phone,
+            "type": "text",
+            "text": {"preview_url": False, "body": message}
         }
         
         headers = {
-            "api_access_token": CHATWOOT_API_TOKEN,
+            "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
             "Content-Type": "application/json"
         }
         
         response = requests.post(url, json=payload, headers=headers, timeout=10)
+        if response.status_code != 200:
+            print(f"Error enviando mensaje: {response.text}")
         return response.status_code == 200
         
     except Exception as e:
-        print(f"Error enviando a Chatwoot: {e}")
+        print(f"Error enviando mensaje WhatsApp: {e}")
         return False
 
 
-async def send_messages_with_delay(instance: str, remote_jid: str, parts: Dict):
+async def send_messages_with_delay(phone: str, parts: Dict):
     """Envía múltiples partes del mensaje con delay"""
     
     # Recopilar partes no vacías
@@ -492,18 +466,12 @@ async def send_messages_with_delay(instance: str, remote_jid: str, parts: Dict):
     if not message_parts:
         return
     
-    # Enviar primera parte a Chatwoot (todas juntas)
-    full_message = " ".join(message_parts)
-    send_chatwoot_message(full_message)
-    
-    # Enviar a WhatsApp parte por parte
+    # Enviar parte por parte con delay
     for i, part in enumerate(message_parts):
         if i > 0:
             await asyncio.sleep(MESSAGE_SEND_DELAY)
         
-        # Calcular delay basado en longitud
-        char_delay = len(part) * 15
-        send_whatsapp_message(instance, remote_jid, part, char_delay)
+        send_whatsapp_message(phone, part)
 
 
 # ============================================================================
@@ -524,10 +492,6 @@ def process_accumulated_messages(phone: str):
     
     print(f"📨 Procesando mensajes de {phone}: {combined_message[:100]}...")
     
-    # Obtener datos guardados
-    instance = store.get_user_data(phone, 'instance', 'default')
-    remote_jid = store.get_user_data(phone, 'remote_jid', f"{phone}@s.whatsapp.net")
-    
     # Consultar IA
     ai_response = query_ai_agent(phone, combined_message)
     
@@ -535,7 +499,7 @@ def process_accumulated_messages(phone: str):
     formatted_parts = format_message_parts(ai_response)
     
     # Enviar mensajes
-    asyncio.run(send_messages_with_delay(instance, remote_jid, formatted_parts))
+    asyncio.run(send_messages_with_delay(phone, formatted_parts))
     
     # Limpiar mensajes procesados
     store.clear_messages(phone)
@@ -632,57 +596,64 @@ Si solicitan hablar con Gabi, responde:
 app = Flask(__name__)
 
 
-@app.route('/webhook/whatsapp', methods=['POST'])
+@app.route('/webhook/whatsapp', methods=['GET', 'POST'])
 def webhook_whatsapp():
-    """Webhook para recibir mensajes de WhatsApp/Chatwoot"""
+    """Webhook para recibir mensajes de WhatsApp directamente de Meta"""
     
-    try:
-        data = request.json
+    if request.method == 'GET':
+        # Verificación del webhook
+        mode = request.args.get('hub.mode')
+        token = request.args.get('hub.verify_token')
+        challenge = request.args.get('hub.challenge')
         
-        # Validar que sea mensaje entrante
-        if data.get('body', {}).get('message_type') != 'incoming':
-            return jsonify({"status": "ignored", "reason": "not incoming"}), 200
+        if mode == 'subscribe' and token == WHATSAPP_VERIFY_TOKEN:
+            print("✅ Webhook verificado")
+            return challenge, 200
+        else:
+            print("❌ Verificación fallida")
+            return "Forbidden", 403
+    
+    if request.method == 'POST':
+        try:
+            data = request.json
+            print("Payload recibido en webhook:", json.dumps(data, indent=2))  # Log del payload completo para debug
+            
+            if not data.get('entry'):
+                print("No entry in payload")
+                return jsonify({"status": "ignored"}), 200
+            
+            for entry in data['entry']:
+                for change in entry.get('changes', []):
+                    value = change.get('value', {})
+                    if value.get('messages'):
+                        for msg in value['messages']:
+                            phone = msg['from']  # Número del remitente
+                            name = value.get('contacts', [{}])[0].get('profile', {}).get('name', '')
+                            message_type = msg['type']
+                            content = msg.get(message_type, {}).get('body', '') if message_type == 'text' else ''
+                            media_id = msg.get(message_type, {}).get('id') if message_type in ['audio', 'image', 'sticker'] else None
+                            
+                            print(f"Mensaje recibido: phone={phone}, type={message_type}, content={content[:50]}, media_id={media_id}")
+                            
+                            # Guardar datos del usuario
+                            store.set_user_data(phone, 'name', name)
+                            
+                            # Procesar contenido
+                            processed_content = process_message_content(message_type, content, media_id)
+                            print(f"Contenido procesado: {processed_content[:50]}")
+                            
+                            # Agregar a memoria
+                            store.add_message(phone, processed_content)
+                            
+                            # Programar procesamiento
+                            store.schedule_processing(phone, process_accumulated_messages)
+                            print(f"Procesamiento programado para {phone}")
+            
+            return jsonify({"status": "queued"}), 200
         
-        # Extraer datos del mensaje
-        body = data.get('body', {})
-        sender = body.get('sender', {})
-        
-        phone = sender.get('phone_number', '').replace('+', '')
-        name = sender.get('name', '')
-        message_type = body.get('content_type', 'text')
-        content = body.get('content', '')
-        
-        # Datos adicionales
-        instance = body.get('inbox', {}).get('id', 'default')
-        remote_jid = f"{phone}@s.whatsapp.net"
-        
-        # Guardar datos del usuario
-        store.set_user_data(phone, 'instance', instance)
-        store.set_user_data(phone, 'remote_jid', remote_jid)
-        store.set_user_data(phone, 'name', name)
-        
-        # Procesar según tipo de mensaje
-        base64_data = None
-        if message_type in ['audio', 'image', 'sticker']:
-            base64_data = body.get('data', {}).get('message', {}).get('base64')
-        
-        processed_content = process_message_content(message_type, content, base64_data)
-        
-        # Agregar a memoria
-        store.add_message(phone, processed_content)
-        
-        # Programar procesamiento después del delay
-        store.schedule_processing(phone, process_accumulated_messages)
-        
-        return jsonify({
-            "status": "queued",
-            "phone": phone,
-            "message_type": message_type
-        }), 200
-        
-    except Exception as e:
-        print(f"❌ Error en webhook: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        except Exception as e:
+            print(f"❌ Error en webhook: {str(e)}")
+            return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route('/health', methods=['GET'])
@@ -740,7 +711,7 @@ if __name__ == '__main__':
     print("=" * 70)
     print("🤖 Bot de WhatsApp - Studio Gabrielle Natal")
     print("=" * 70)
-    print("✨ Versión 100% en Memoria (Sin Redis, Sin PostgreSQL)")
+    print("✨ Versión 100% en Memoria con WhatsApp Business API Directa")
     print("=" * 70)
     
     # Detectar puerto de Render o usar 10000 por defecto
@@ -751,14 +722,11 @@ if __name__ == '__main__':
     print(f"Health: http://localhost:{port}/health")
     print(f"Stats: http://localhost:{port}/stats")
     print("=" * 70)
-    print(f"📝 Credenciales desde JSON original de n8n:")
-    print(f"   ✅ OpenAI (id: PGVzTzuh2HAoTTyS)")
-    print(f"   ✅ Chatwoot Account: 138777")
-    print(f"   ✅ Chatwoot Token: {CHATWOOT_API_TOKEN[:20]}...")
-    print(f"   ✅ Evolution (id: rniQecqvTbok0fj7)")
-    print(f"   ✅ Redis (id: bjEyCAk9JJ3QXrqG) - No usado, se usa RAM")
-    print(f"   ✅ PostgreSQL (id: GfOA4VDJdGF0xebE) - No usado, se usa RAM")
-    print(f"   ✅ Supabase (id: nknXq3pe8zLgswTX) - Opcional")
+    print(f"📝 Credenciales:")
+    print(f"   ✅ OpenAI (configurada)")
+    print(f"   ✅ WhatsApp Token: {WHATSAPP_ACCESS_TOKEN[:20]}...")
+    print(f"   ✅ Phone Number ID: {WHATSAPP_PHONE_NUMBER_ID}")
+    print(f"   ✅ Verify Token: {WHATSAPP_VERIFY_TOKEN}")
     print("=" * 70)
     
     # Verificar API key de OpenAI
@@ -769,6 +737,14 @@ if __name__ == '__main__':
         print("=" * 70)
     else:
         print("✅ API key de OpenAI configurada")
+        print("=" * 70)
+    
+    if WHATSAPP_PHONE_NUMBER_ID == "TU_PHONE_NUMBER_ID_AQUI":
+        print("⚠️  ADVERTENCIA: Configura WHATSAPP_PHONE_NUMBER_ID en .env")
+        print("=" * 70)
+    
+    if WHATSAPP_VERIFY_TOKEN == "TU_VERIFY_TOKEN_PERSONALIZADO":
+        print("⚠️  ADVERTENCIA: Configura WHATSAPP_VERIFY_TOKEN en .env y en el dashboard de Meta")
         print("=" * 70)
     
     print(f"🚀 Iniciando servidor en puerto {port}...")
