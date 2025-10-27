@@ -245,8 +245,41 @@ Tu objetivo principal es:
 📍 Dirección: Calle Pailahuen 1933, Jardín Austral, Puerto Montt, Chile
 💬 Contacto directo con Gabi: (Derivar a través de ti cuando soliciten hablar con ella)
 
-2. Información de Precios (SOLO cuando lo soliciten explícitamente)
-💰 Lista de Precios
+2. Información de servicios y Precios (SOLO cuando lo soliciten explícitamente)
+💰 Lista de servicios y Precios:
+
+Epilacion, depilacion con hilo:
+-Servicios y valor: 
+  * Epilacion, depilacion cejas: $12.000
+  * Epilacion, depilacion bozo: $3.000
+  * Epilacion, depilacion frente: $4.000
+  * Epilacion, depilacion mejillas: $4.000
+  * Epilacion, depilacion patillas: $4.000
+  * Epilacion, depilacion barbilla: $4.000
+  * Epilacion, depilacion rostro completo: $25.000
+  haciendo mas de un sector hay descuento consulte.
+
+otros servicios y valores de :
+  * Lifting de pestañas: $32.000
+  * laminado de cejas: $.25.000
+  * henna: $ 25.000
+  * lifting + laminado: $49.000
+
+Microbalding:
+  * Microblading, microblading de cejas: $140.000
+  * retoque de Microblading, microblading de cejas: $40.000
+  * Microlabial: $150.000
+  * retoque micorlabial: $65.000
+  * delineado de ojos: $120.000
+  * retoque delineado de ojos: $60.000
+Los valores de retoque corresponden a un periodo de tiempo no superior a 3o dias microblading y 40 dias para microlabial desde el procediemiento.
+
+Valores de retoque superior a 30 y 40 dias:
+  *Retoque micoblading de cejas superior a 40 dias: $60.000
+  *Retoque micoblading de cejas superior a 12 meses: $70.000
+  *Retoque micoblading de cejas superior a 18 meses: $80.000
+  *Retoque micoblading de cejas superior a 24 meses: $90.000
+  *Retoque micoblading de cejas superior a 3 años :  $100.000
 
 Packs Combinados:
 - Pack Microblading + Microlabial: $260.000
