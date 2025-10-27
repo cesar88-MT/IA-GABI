@@ -222,35 +222,48 @@ def process_accumulated_messages(phone):
             log(f"❌ Sin conversation_id")
         
         log(f"{'='*70}\n")
+        
     except Exception as e:
-        log(f"❌ Error: {e}")
+        log(f"❌ ERROR: {e}")
         import traceback
         log(traceback.format_exc())
-    finally:
-        store.cancel_timer(phone)
 
-SYSTEM_PROMPT = """1. Tu Rol y Contexto
-Rol: Eres Delinea, la asistente virtual de Gabi del Studio Gabrielle Natal, especializada en micropigmentación profesional y servicios de belleza.
-Contexto: Ayudarás a los usuarios que escriben por WhatsApp o mensajes directos, brindándoles información clara, precisa y profesional sobre los servicios de micropigmentación (cejas, labios, ojos) del Studio Gabrielle Natal en Puerto Montt, Chile.
+SYSTEM_PROMPT = """Eres Delinea, la asistente virtual del Studio Gabrielle Natal en Puerto Montt.
 
-Tu objetivo principal es:
-- Si tienen dudas sobre servicios de micropigmentación (cejas, labios, ojos): responder con claridad profesional, explicar técnicas, beneficios, duraciones y cuidados específicos. Eres experta certificada con conocimientos profundos en técnicas semipermanentes y colorimetría.
-- Si quieren información sobre precios: proporcionarlos SOLO cuando lo soliciten explícitamente, de manera clara y detallada. Incluye siempre el precio del retoque correspondiente a cada procedimiento. Los retoques se realizan 40 días después si son necesarios.
-- Si desean agendar una cita: recopilar su información (nombre, teléfono, disponibilidad horaria) y coordinar con Gabi para confirmación. NUNCA confirmes citas directamente. Solo Gabi puede revisar la agenda y confirmar disponibilidad.
-- Si solicitan hablar con Gabi, Gabrielle o un humano: responder inmediatamente: "Espera un momento por favor, apenas esté disponible entrará en contacto contigo." Deriva a Gabi para consultas médicas específicas, casos especiales o confirmaciones de agenda.
-- Si preguntan cómo llegar: proporcionar las indicaciones detalladas de ubicación y estacionamiento. Enfatiza las recomendaciones de estacionamiento para mantener buena convivencia con los vecinos.
+1. Información del Studio
+🌟 Studio Gabrielle Natal - Estética y Belleza Profesional
+👩‍⚕️ Propietaria: Gabrielle Natal (Gabi)
+📍 Ubicación: Puerto Montt, Chile
+⏰ Horarios: Lunes a Sábado (horarios flexibles según disponibilidad)
 
-🌐 Enlaces y Contacto
-📸 Instagram Studio Gabrielle Natal: https://instagram.com/studiogabriellenatal
-📍 Dirección: Calle Pailahuen 1933, Jardín Austral, Puerto Montt, Chile
-💬 Contacto directo con Gabi: (Derivar a través de ti cuando soliciten hablar con ella)
+2. Servicios y Precios
 
-2. Información de servicios y Precios (SOLO cuando lo soliciten explícitamente)
-💰 Lista de servicios y Precios:
+Microblading/Micropigmentación de Cejas:
+  * Primera sesión: $140.000
+  * Retoque (dentro de 30 días): $40.000
+  * Retoque después de 40 días: $60.000
+  * Retoque después de 12 meses: $70.000
+  * Retoque después de 18 meses: $80.000
+  * Retoque después de 24 meses: $90.000
+  * Retoque después de 3 años: $100.000
 
-Epilacion, depilacion con hilo:
--Servicios y valor: 
-  * Epilacion, depilacion cejas: $12.000
+Microlabial (Micropigmentación de Labios):
+  * Primera sesión: $150.000
+  * Retoque (dentro de 40 días): $65.000
+
+Delineado de Ojos:
+  * Primera sesión: $120.000
+  * Retoque (dentro de 40 días): $60.000
+
+Epilacion, depilacion con cera valores :
+  * Epilacion, depilacion axila: $4.000
+  * Epilacion, depilacion media pierna: $9.000
+  * Epilacion, depilacion pierna completa: $12.000
+  * Epilacion, depilacion ingle completa (brasilera): $12.000
+  * Epilacion, depilacion cavado: $8.000
+  * Epilacion, depilacion brazos completos: $10.000
+  * Epilacion, depilacion media brazo: $7.000
+  * Epilacion, depilacion linea alba: $4.000
   * Epilacion, depilacion bozo: $3.000
   * Epilacion, depilacion frente: $4.000
   * Epilacion, depilacion mejillas: $4.000
@@ -356,6 +369,17 @@ Estoy aquí para ayudarte con tus consultas sobre nuestros servicios, entregarte
 
 # FLASK
 app = Flask(__name__)
+
+# ✅ NUEVA RUTA RAÍZ PARA HEALTH CHECKS
+@app.route('/', methods=['GET', 'HEAD'])
+def root():
+    """Endpoint raíz para health checks de Render"""
+    return jsonify({
+        "status": "online",
+        "service": "Bot WhatsApp - Studio Gabrielle Natal",
+        "timestamp": datetime.now().isoformat(),
+        **store.get_stats()
+    }), 200
 
 @app.route('/webhook/whatsapp', methods=['GET', 'POST'])
 def webhook_whatsapp():
